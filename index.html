@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Opsis Catalogue</title>
+  <link rel="icon" type="image/png" href="/icons/favicon-64.png" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <meta name="theme-color" content="#123c57" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Opsis" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <header class="bar">
+    <div class="brand">
+      <a class="logo" href="/" aria-label="Opsis">
+        <img src="/brand/opsis-logo-navy.webp" alt="Opsis" width="512" height="208" />
+      </a>
+      <span class="divider" aria-hidden="true"></span>
+      <div class="title">
+      <span class="eyebrow">Medical catalogue</span>
+      <h1 id="docTitle">Surgical Instruments</h1>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="install" id="btnInstall" hidden title="Install the catalogue as an app, works offline">
+        <svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M12 7.5v7m0 0-3-3m3 3 3-3M10 18.5h4"/></svg>
+        <span>Install app</span>
+      </button>
+      <button class="icon" id="btnSound" title="Sound" aria-label="Toggle sound">
+        <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/></svg>
+      </button>
+      <a class="icon" id="btnDownload" title="Download PDF" aria-label="Download PDF" href="/catalog.pdf" download>
+        <svg viewBox="0 0 24 24"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14"/></svg>
+      </a>
+      <div class="share-wrap">
+        <button class="icon" id="btnShare" title="Share" aria-label="Share" aria-expanded="false">
+          <svg viewBox="0 0 24 24"><circle cx="18" cy="5.5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="18.5" r="2.5"/><path d="M8.2 10.8l7.6-4.1M8.2 13.2l7.6 4.1"/></svg>
+        </button>
+        <div class="share-pop" id="sharePop" role="menu">
+          <p class="share-head">Share this catalogue</p>
+          <label class="share-page"><input type="checkbox" id="sharePageOpt" checked /> Link to the page I'm on</label>
+          <div class="share-grid" id="shareGrid"></div>
+          <div class="share-copy">
+            <input id="shareUrl" readonly />
+            <button id="btnCopy">Copy</button>
+          </div>
+        </div>
+      </div>
+      <button class="icon" id="btnFull" title="Fullscreen" aria-label="Fullscreen">
+        <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="stage">
+    <div class="loader" id="loader"><div class="ring"></div><span id="loadText">Opening catalogue…</span></div>
+  </main>
+
+  <nav class="controls">
+    <button class="nav" id="btnPrev" aria-label="Previous page">
+      <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
+    <button class="counter" id="btnThumbs" title="All pages"><span id="counter">–</span></button>
+    <button class="clean" id="btnClean" hidden title="Wipe the coffee off the pages">
+      <svg viewBox="0 0 24 24"><path d="M14.5 3.5l6 6M4 20l5.5-1.5L19 9l-4-4-9.5 9.5z"/><path d="M12 7l5 5"/></svg>
+      <span>Clean pages</span>
+    </button>
+    <button class="nav" id="btnNext" aria-label="Next page">
+      <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+    </button>
+  </nav>
+
+  <aside class="thumbs" id="thumbs" aria-hidden="true"><div class="track" id="track"></div></aside>
+  <div class="hint" id="hint">Drag a page corner, tap, or use ← →. Double click to zoom.</div>
+  <div class="pen-bar" id="penBar" role="toolbar" aria-label="Pen">
+    <span class="pen-label">Pen</span>
+    <button class="sw on" data-color="red" style="--c:#d3202a" aria-label="Red"></button>
+    <button class="sw" data-color="blue" style="--c:#1d4fd8" aria-label="Blue"></button>
+    <button class="sw" data-color="black" style="--c:#17191e" aria-label="Black"></button>
+    <button class="sw hl" data-color="highlighter" style="--c:#ffe23d" aria-label="Highlighter"></button>
+    <span class="pen-sep"></span>
+    <button class="pen-btn" id="penUndo" title="Undo last stroke">
+      <svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+    </button>
+    <button class="pen-btn done" id="penDone">Done</button>
+  </div>
+  <div class="toast" id="toast"></div>
+  <div class="ios-sheet" id="iosInstall" role="dialog" aria-label="Install on iPhone">
+    <div class="ios-card">
+      <img src="/icons/icon-192.png" alt="" width="56" height="56" />
+      <p class="ios-title">Install Opsis Catalogue</p>
+      <p class="ios-text">Read it anytime, even without internet.</p>
+      <ol>
+        <li>Tap <svg viewBox="0 0 24 24" class="ios-ic"><path d="M12 15V4m0 0L8 8m4-4 4 4M6 11v8a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-8"/></svg> <b>Share</b> in the Safari toolbar</li>
+        <li>Choose <b>Add to Home Screen</b></li>
+      </ol>
+      <button id="iosClose">Got it</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
