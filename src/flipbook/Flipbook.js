@@ -145,7 +145,7 @@ export class Flipbook extends EventTarget {
     const shown = wasPortrait ? [both[this.focus === 'L' ? 0 : 1]] : both;
     return shown.filter((e) => e && e.page).map((e) => e.page);
   }
-  _baseX() { return this.portrait ? (this.focus === 'L' ? -1 : 1) * (W + BOARD_M) / 2 : 0; }
+  _baseX() { return this.portrait ? (this.focus === 'L' ? -1 : 1) * W / 2 : 0; }
   _normalizeFocus() {
     if (!this.portrait) return;
     if (this.focus === 'L' && !this._isPage(2 * this.spread)) this.focus = 'R';
@@ -329,11 +329,13 @@ export class Flipbook extends EventTarget {
     // hardcover boards
     const coverMat = new THREE.MeshStandardMaterial({ color: this.opts.coverColor, roughness: 0.92 });
     const boardGeo = new THREE.BoxGeometry(W + BOARD_M, H + 2 * BOARD_M, BOARD_T);
+    this.boards = [];
     for (const side of [1, -1]) {
       const b = new THREE.Mesh(boardGeo, coverMat);
       b.position.set((side * (W + BOARD_M)) / 2, 0, BOARD_T / 2);
       b.castShadow = true; b.receiveShadow = true;
       this.book.add(b);
+      this.boards.push(b);
     }
     // page stacks (side faces follow the gutter curve of the top page)
     const edgeMat = new THREE.MeshStandardMaterial({ map: this.edgeTex, roughness: 0.9 });
@@ -368,6 +370,13 @@ export class Flipbook extends EventTarget {
     this.flipGroup.visible = false;
     for (const m of [this.flipFront, this.flipBack]) m.frustumCulled = false;
     this.book.add(this.flipGroup);
+
+    // phones: a catalogue, not a book. Only the page itself, no hard cover and nothing on the left;
+    // a turned page goes over the edge and is gone
+    const single = this.portrait;
+    for (const b of this.boards) b.visible = !single;
+    this.stackL.visible = this.staticL.visible = !single;
+    this.book.position.z = single ? -BOARD_T : 0;
   }
 
   _makeStack(mat) {
@@ -424,10 +433,28 @@ export class Flipbook extends EventTarget {
 
   // ---------------------------------------------------------------- textures
 
+  // page texture height = how tall the page really is on screen, in device pixels.
+  // A texture much bigger than that gets sampled from a blurred mipmap and small text goes soft.
   _texHeight() {
-    const px = this.renderer.domElement.height * 0.9 * this.zoomTarget;
     const max = Math.min(this.renderer.capabilities.maxTextureSize, 4096);
-    return clamp(Math.round(px / 256) * 256, 1024, max);
+    const canvasH = this.renderer.domElement.height || 1;
+    let px = canvasH * 0.9;
+    if (this.H && this.baseDist) {
+      const t = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+      // the lower edge sits a little closer to the tilted camera, hence the small margin
+      px = (this.H / (2 * t * this.baseDist)) * canvasH * 1.04;
+    }
+    return clamp(Math.ceil((px * this.zoomTarget) / 64) * 64, 512, max);
+  }
+
+  _pageTexture(canvas) {
+    const t = new THREE.CanvasTexture(canvas);
+    t.colorSpace = THREE.SRGBColorSpace;
+    // nearest mip level instead of blending two: the full size image is used whenever it fits,
+    // so text stays crisp at normal zoom, and turning sheets still get a smaller level
+    t.minFilter = THREE.LinearMipmapNearestFilter;
+    t.anisotropy = this.maxAniso;
+    return t;
   }
 
   _getTex(i) {
@@ -455,7 +482,8 @@ export class Flipbook extends EventTarget {
       const near = Math.abs(i - centre) <= 2.5;
       const h = near ? want : Math.min(want, 1536);
       const have = this.tex.get(i);
-      if (have && have.height >= h) continue;
+      // good enough: at least as sharp as the screen, and not so oversized that it blurs (e.g. after zooming out)
+      if (have && have.height >= h && (have.height <= h * 1.6 || !near)) continue;
       if (have?.loading === h) continue;
       const rec = have || {};
       rec.loading = h;
@@ -466,8 +494,7 @@ export class Flipbook extends EventTarget {
         this.pdf.render(e.page, 480, Math.abs(i - centre) - 100).then((canvas) => {
           if (rec.tex) return;
           this._applyStains(i, canvas);
-          const t = new THREE.CanvasTexture(canvas);
-          t.colorSpace = THREE.SRGBColorSpace;
+          const t = this._pageTexture(canvas);
           rec.tex = t; rec.height = rec.height || 0;
           this.pdf.forget(e.page, 480);
           this._refreshMaps();
@@ -476,9 +503,7 @@ export class Flipbook extends EventTarget {
       this.pdf.render(e.page, h, Math.abs(i - centre)).then((canvas) => {
         if (rec.loading !== h) return;
         this._applyStains(i, canvas);
-        const t = new THREE.CanvasTexture(canvas);
-        t.colorSpace = THREE.SRGBColorSpace;
-        t.anisotropy = this.maxAniso;
+        const t = this._pageTexture(canvas);
         rec.tex?.dispose();
         rec.tex = t; rec.height = h; rec.loading = 0;
         this.pdf.forget(e.page, h);
@@ -834,7 +859,9 @@ export class Flipbook extends EventTarget {
     if (!w || !h) return;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
-    const portrait = this.opts.singlePage !== false && w / h < 0.78;
+    // single page catalogue on tall screens, and always on phones (also held sideways)
+    const phone = matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 600;
+    const portrait = this.opts.singlePage !== false && (w / h < 0.78 || phone);
     if (portrait !== this.portrait) {
       this.portrait = portrait;
       this._relayout();
@@ -843,6 +870,7 @@ export class Flipbook extends EventTarget {
       if (this.list) this._emitFlip();
     }
     this._fitCamera();
+    if (this.list) this._requestTextures(); // the page size on screen changed: keep textures sharp
     for (const x of this.extras) x.onResize?.();
     this.dirty = true;
   }
@@ -856,8 +884,8 @@ export class Flipbook extends EventTarget {
     this.camera.clearViewOffset();
     this.camera.setViewOffset(w, h, 0, -(pad.top - pad.bottom) / 2, w, h);
     if (!this.H) { this.camera.updateProjectionMatrix(); return; }
-    const bw = this.portrait ? W + 2 * BOARD_M + 0.04 : 2 * (W + BOARD_M) + 0.03;
-    const bh = this.H + 2 * BOARD_M + 0.03;
+    const bw = this.portrait ? W + 0.05 : 2 * (W + BOARD_M) + 0.03;
+    const bh = this.portrait ? this.H + 0.05 : this.H + 2 * BOARD_M + 0.03;
     const t = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
     const dH = (bh / 2 / t) * (h / ah), dW = (bw / 2 / (t * this.camera.aspect)) * (w / aw);
     this.baseDist = Math.max(dH, dW) * (this.opts.fitScale ?? 1);
@@ -872,8 +900,8 @@ export class Flipbook extends EventTarget {
   // where the closed or open book sits on screen at normal zoom, in CSS pixels
   bookScreenRect() {
     if (!this.H) return null;
-    const half = this.portrait ? W / 2 + BOARD_M : W + BOARD_M;
-    const bx = this._baseX(), hy = this.H / 2 + BOARD_M;
+    const half = this.portrait ? W / 2 : W + BOARD_M;
+    const bx = this._baseX(), hy = this.H / 2 + (this.portrait ? 0 : BOARD_M);
     const saved = { z: this.zoom, x: this.pan.x, y: this.pan.y };
     this.zoom = 1; this.pan.set(bx, 0); this._placeCamera(); this.camera.updateMatrixWorld();
     const r = this.renderer.domElement.getBoundingClientRect();
@@ -910,7 +938,7 @@ export class Flipbook extends EventTarget {
     const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     const ray = new THREE.Raycaster();
     ray.setFromCamera(ndc, this.camera);
-    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -(BOARD_T + 0.03));
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -(BOARD_T + 0.03 + this.book.position.z));
     const p = new THREE.Vector3();
     return ray.ray.intersectPlane(plane, p) ? p : null;
   }
