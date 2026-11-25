@@ -6,6 +6,15 @@ export function setupPwa({ installButton, toast }) {
   registerSW({
     immediate: true,
     onOfflineReady() { toast(t('offlineReady')); },
+    // look for a new deploy often: on open, when the tab comes back, and every minute while open.
+    // A new version installs itself and the page reloads onto it (registerType autoUpdate).
+    onRegisteredSW(_url, reg) {
+      if (!reg) return;
+      const check = () => { if (navigator.onLine !== false) reg.update().catch(() => {}); };
+      setInterval(() => { if (document.visibilityState === 'visible') check(); }, 60 * 1000);
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+      addEventListener('focus', check);
+    },
   });
 
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;

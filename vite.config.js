@@ -27,11 +27,21 @@ export default defineConfig({
       },
       workbox: {
         // everything the viewer needs, including the catalogue PDF and page sounds
-        globPatterns: ['**/*.{js,mjs,css,html,png,webp,svg,mp3,pdf,woff2}'],
+        // the page itself is NOT precached: it always comes fresh from the network (see runtimeCaching),
+        // so a new deploy shows up on the next visit without clearing anything
+        globPatterns: ['**/*.{js,mjs,css,png,webp,svg,mp3,pdf,woff2}'],
         maximumFileSizeToCacheInBytes: 60 * 1024 * 1024,
         cleanupOutdatedCaches: true,
-        navigateFallback: '/index.html',
+        skipWaiting: true,
+        clientsClaim: true,
+        navigateFallback: null,
         runtimeCaching: [
+          {
+            // network first for the page: fresh when online, the last copy when offline
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: { cacheName: 'pages', networkTimeoutSeconds: 4, expiration: { maxEntries: 5 } },
+          },
           {
             urlPattern: ({ url }) => url.origin === 'https://fonts.googleapis.com' || url.origin === 'https://fonts.gstatic.com',
             handler: 'CacheFirst',
