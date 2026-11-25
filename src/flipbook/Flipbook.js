@@ -628,8 +628,12 @@ export class Flipbook extends EventTarget {
 
   _refreshMaps() {
     if (this.flip) {
-      this._setMap(this.staticL, this.flip.sL);
-      this._setMap(this.staticR, this.flip.sR);
+      const f = this.flip;
+      // while a completed turn settles, the curved page underneath peeks through the flat landing sheet,
+      // so give it the landing page already: no flash of the previous page
+      const landing = f.mode === 'anim' && f.anim?.complete && (f.progress || 0) > 0.8;
+      this._setMap(this.staticL, landing && f.dir > 0 ? f.back : f.sL);
+      this._setMap(this.staticR, landing && f.dir < 0 ? f.back : f.sR);
       this._setMap(this.flipFront, this.flip.front);
       this._setMap(this.flipBack, this.flip.back);
     } else {
@@ -778,6 +782,7 @@ export class Flipbook extends EventTarget {
         f.M[0] = a.from[0] + (a.to[0] - a.from[0]) * e;
         f.M[1] = a.from[1] + (a.to[1] - a.from[1]) * e + a.bump * Math.sin(Math.PI * e);
         this._deform();
+        this._refreshMaps();
         if (a.t >= 1) this._endFlip(f);
       } else {
         // drag and peek: the sheet follows the pointer with a little inertia
