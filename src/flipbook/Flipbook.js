@@ -55,11 +55,7 @@ export class Flipbook extends EventTarget {
     this.pdf = new PdfSource();
     await this.pdf.open(src, (p) => this._emit('progress', { loaded: p }));
     const n = this.pdf.numPages;
-    // [inside front cover, p1 ... pn, (inside back cover if needed)]
-    this.list = [{ paper: true }];
-    for (let i = 1; i <= n; i++) this.list.push({ page: i });
-    if (this.list.length % 2) this.list.push({ paper: true });
-    this.numSpreads = this.list.length / 2;
+    this._makeList();
     this.H = W * this.pdf.aspect;
     this.spread = 0;
     this.flip = null;
@@ -100,14 +96,55 @@ export class Flipbook extends EventTarget {
     this._auto(-1);
   }
   goToPage(no) {
-    const t = clamp(Math.floor(no / 2), 0, this.numSpreads - 1);
-    const side = no % 2 === 0 ? 'L' : 'R';
+    const t = this._spreadOf(no);
+    const side = this._sideOf(no);
     if (t === this.spread) { if (this.portrait) this._setFocus(side); return; }
     this._landFocus = side;
     this._auto(t > this.spread ? 1 : -1, t);
   }
 
   _isPage(i) { return !!this.list?.[i]?.page; }
+
+  // two page layouts:
+  //   spread view: [inside front cover, p1 ... pn, (inside back cover if needed)]
+  //   single view (phones): every page is a right hand page with a blank back, [paper, p1, paper, p2 ...]
+  //   so a turn is just the sheet going over, and the camera never has to move
+  _makeList() {
+    const n = this.pdf.numPages;
+    this.list = [{ paper: true }];
+    for (let i = 1; i <= n; i++) {
+      this.list.push({ page: i });
+      if (this.portrait && i < n) this.list.push({ paper: true });
+    }
+    if (this.list.length % 2) this.list.push({ paper: true });
+    this.numSpreads = this.list.length / 2;
+  }
+  _spreadOf(no) { return clamp(this.portrait ? no - 1 : Math.floor(no / 2), 0, this.numSpreads - 1); }
+  _sideOf(no) { return this.portrait || no % 2 ? 'R' : 'L'; }
+
+  // the view switched between single and spread: rebuild the book on the same page
+  _relayout() {
+    if (!this.pdf) return;
+    const at = this.visiblePagesFor(!this.portrait)[0] || 1;
+    if (this.flip) { this.flip = null; this.flipGroup && (this.flipGroup.visible = false); }
+    this.pending = [];
+    this.tex.forEach((t) => t.tex?.dispose());
+    this.tex.clear();
+    this.stains.clear();
+    this._makeList();
+    this.spread = this._spreadOf(at);
+    this.focus = this._sideOf(at);
+    this._normalizeFocus();
+    this._buildBook();
+    this._updateStatic();
+    this._requestTextures();
+  }
+  // pages of the current spread as the previous layout would show them
+  visiblePagesFor(wasPortrait) {
+    const both = [this.list?.[2 * this.spread], this.list?.[2 * this.spread + 1]];
+    const shown = wasPortrait ? [both[this.focus === 'L' ? 0 : 1]] : both;
+    return shown.filter((e) => e && e.page).map((e) => e.page);
+  }
   _baseX() { return this.portrait ? (this.focus === 'L' ? -1 : 1) * (W + BOARD_M) / 2 : 0; }
   _normalizeFocus() {
     if (!this.portrait) return;
@@ -127,8 +164,8 @@ export class Flipbook extends EventTarget {
   jumpToPage(no) {
     if (!this.list) return;
     if (this.flip) this._cancelFlip();
-    this.spread = clamp(Math.floor(no / 2), 0, this.numSpreads - 1);
-    this.focus = no % 2 === 0 ? 'L' : 'R';
+    this.spread = this._spreadOf(no);
+    this.focus = this._sideOf(no);
     this._normalizeFocus();
     this.panTarget.set(this._baseX(), 0); this.pan.copy(this.panTarget); this._placeCamera();
     this._updateStatic();
@@ -754,12 +791,6 @@ export class Flipbook extends EventTarget {
         }
       }
     }
-    // portrait: the camera travels with the turning sheet to the page it lands on
-    if (this.portrait && this.flip && this.zoomTarget <= 1.02 && this.flip.mode !== 'peek') {
-      const fr = this.flip.dir > 0 ? W / 2 : -W / 2;
-      this.panTarget.x = fr + (-2 * fr) * (this.flip.progress || 0);
-      this.panTarget.y = 0;
-    }
     if (this._panVel && !this._drag && !this._pinch) {
       this.panTarget.x += this._panVel.x * dt; this.panTarget.y += this._panVel.y * dt;
       this._clampPan();
@@ -801,6 +832,7 @@ export class Flipbook extends EventTarget {
     const portrait = this.opts.singlePage !== false && w / h < 0.78;
     if (portrait !== this.portrait) {
       this.portrait = portrait;
+      this._relayout();
       this._normalizeFocus();
       this.panTarget.set(this._baseX(), 0); this.pan.copy(this.panTarget);
       if (this.list) this._emitFlip();
@@ -1053,6 +1085,8 @@ export class Flipbook extends EventTarget {
         const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
         d.pending = false;
         if (Math.abs(dy) > Math.abs(dx) * 1.4) { d.ignore = true; return; }
+        // single view: a swipe to the right brings the previous sheet back over
+        if (this.portrait && dx > 0) { d.ignore = true; if (this.canPrev) this.prev(); return; }
         if (!this._beginDrag(d.dir, d.p0, p)) { d.ignore = true; return; }
       }
       const f = this.flip;
@@ -1111,8 +1145,7 @@ export class Flipbook extends EventTarget {
     clearTimeout(this._tapTimer);
     this._tapTimer = setTimeout(() => {
       if (this.zoomTarget > 1.03) return;
-      if (this.portrait && dir < 0) this.next(); // left page in single view: move on to the right page
-      else this._auto(dir);
+      this._auto(dir);
     }, 300);
   }
 
@@ -1151,7 +1184,10 @@ export class Flipbook extends EventTarget {
       else if (dx > 50) this.prev();
       return;
     }
-    if (d.pending) { if (!d.moved) this._tap(e, d.dir); return; }
+    if (d.pending) {
+      if (!d.moved) this._tap(e, this.portrait && d.p0.x < W * 0.3 && this.canPrev ? -1 : d.dir);
+      return;
+    }
     const f = this.flip;
     if (!f || f.mode !== 'drag') return;
     const quick = !d.moved && performance.now() - d.t < 400;
