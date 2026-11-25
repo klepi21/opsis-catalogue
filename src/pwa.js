@@ -1,10 +1,11 @@
 // Offline support + "Install app" button.
 import { registerSW } from 'virtual:pwa-register';
+import { t } from './i18n.js';
 
 export function setupPwa({ installButton, toast }) {
   registerSW({
     immediate: true,
-    onOfflineReady() { toast('Ready to use offline'); },
+    onOfflineReady() { toast(t('offlineReady')); },
   });
 
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
@@ -23,7 +24,7 @@ export function setupPwa({ installButton, toast }) {
   window.addEventListener('appinstalled', () => {
     installButton.hidden = true;
     deferred = null;
-    toast('Installed. Open it from your home screen');
+    toast(t('installed'));
   });
 
   // iPhone / iPad: no prompt API, so explain the Share menu instead

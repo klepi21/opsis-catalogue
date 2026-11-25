@@ -157,6 +157,13 @@ export class Flipbook extends EventTarget {
 
   // ---------------------------------------------------------------- scene
 
+  // dark room: softer fill light and a deeper shadow, the pages stay readable like under a lamp
+  setDark(on) {
+    this.hemi.intensity = on ? 0.62 : 1.05;
+    this.key.intensity = on ? 2.05 : 2.35;
+    this.groundMat.opacity = on ? 0.55 : 0.32;
+  }
+
   _initThree() {
     const r = (this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }));
     r.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -172,7 +179,7 @@ export class Flipbook extends EventTarget {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(26, 1, 0.05, 50);
 
-    const hemi = new THREE.HemisphereLight(0xfffaf0, 0x9a9488, 1.05);
+    const hemi = (this.hemi = new THREE.HemisphereLight(0xfffaf0, 0x9a9488, 1.05));
     this.scene.add(hemi);
     const key = (this.key = new THREE.DirectionalLight(0xfffdf8, 2.35));
     key.position.set(-1.4, 1.9, 5.2);
@@ -186,7 +193,7 @@ export class Flipbook extends EventTarget {
 
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(30, 30),
-      new THREE.ShadowMaterial({ opacity: 0.32 })
+      (this.groundMat = new THREE.ShadowMaterial({ opacity: 0.32 }))
     );
     ground.receiveShadow = true;
     this.scene.add(ground);

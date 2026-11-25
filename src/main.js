@@ -3,6 +3,10 @@ import { setupPwa } from './pwa.js';
 import { CoffeeCup } from './flipbook/coffee.js';
 import { Burger } from './flipbook/burger.js';
 import { Pen } from './flipbook/pen.js';
+import { t, applyLang, setLang, onLangChange, lang } from './i18n.js';
+import { setupTheme } from './theme.js';
+
+applyLang();
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -30,11 +34,12 @@ const params = new URLSearchParams(location.search);
 const src = '/catalog.pdf';
 
 book.addEventListener('progress', (e) => {
-  $('loadText').textContent = `Opening catalogue… ${Math.round(e.detail.loaded * 100)}%`;
+  $('loadText').textContent = t('openingPct', { p: Math.round(e.detail.loaded * 100) });
 });
 let firstLoad = true;
 if (matchMedia('(pointer: coarse)').matches) {
-  $('hint').textContent = 'Swipe to turn the page, pinch to zoom';
+  $('hint').dataset.i18n = 'hintTouch';
+  $('hint').textContent = t('hintTouch');
 }
 book.addEventListener('ready', () => {
   $('loader').classList.add('done');
@@ -61,7 +66,8 @@ book.addEventListener('flip', (e) => {
 });
 
 book.load(src).catch((err) => {
-  $('loadText').textContent = 'Could not open the PDF';
+  $('loadText').dataset.i18n = 'openFail';
+  $('loadText').textContent = t('openFail');
   console.error(err);
 });
 
@@ -122,7 +128,7 @@ function loadThumbs() {
 
 // ------------------------------------------------------------ download
 $('btnDownload').href = src;
-$('btnDownload').download = src.split('/').pop();
+$('btnDownload').download = 'Opsis-2027.pdf';
 
 // ------------------------------------------------------------ share
 const ICONS = {
@@ -153,9 +159,9 @@ function shareLink() {
 function renderShare() {
   const link = shareLink();
   $('shareUrl').value = link;
-  const u = encodeURIComponent(link), t = encodeURIComponent($('docTitle').textContent);
-  const items = NETWORKS.map((n) => `<a class="share-item ${n.id}" href="${n.url(u, t)}" target="_blank" rel="noopener"><svg viewBox="0 0 24 24">${ICONS[n.id]}</svg><span>${n.label}</span></a>`);
-  if (navigator.share) items.push(`<button class="share-item more" id="btnNative"><svg viewBox="0 0 24 24">${ICONS.more}</svg><span>More</span></button>`);
+  const u = encodeURIComponent(link), title = encodeURIComponent($('docTitle').textContent);
+  const items = NETWORKS.map((n) => `<a class="share-item ${n.id}" href="${n.url(u, title)}" target="_blank" rel="noopener"><svg viewBox="0 0 24 24">${ICONS[n.id]}</svg><span>${n.label}</span></a>`);
+  if (navigator.share) items.push(`<button class="share-item more" id="btnNative"><svg viewBox="0 0 24 24">${ICONS.more}</svg><span>${t('more')}</span></button>`);
   $('shareGrid').innerHTML = items.join('');
   $('btnNative')?.addEventListener('click', () => {
     navigator.share({ title: $('docTitle').textContent, url: shareLink() }).catch(() => {});
@@ -174,7 +180,7 @@ book.addEventListener('flip', () => { if ($('sharePop').classList.contains('open
 $('btnCopy').onclick = async () => {
   try { await navigator.clipboard.writeText($('shareUrl').value); }
   catch { $('shareUrl').select(); document.execCommand('copy'); }
-  toast('Link copied');
+  toast(t('linkCopied'));
 };
 function toast(msg) {
   const t = $('toast');
@@ -198,17 +204,17 @@ $('btnClean').onclick = () => { book.clearStains(); window.cup?.clearSplats(); w
 let cupHinted = false;
 let burgerHinted = false;
 book.addEventListener('burger', (e) => {
-  if (e.detail.type === 'hover' && !burgerHinted) { burgerHinted = true; toast('Fling the burger. Double click squeezes it'); }
+  if (e.detail.type === 'hover' && !burgerHinted) { burgerHinted = true; toast(t('burgerHint')); }
 });
 book.addEventListener('coffee', (e) => {
-  if (e.detail.type === 'hover' && !cupHinted) { cupHinted = true; toast('Grab the cup and fling it. Double click throws it'); }
+  if (e.detail.type === 'hover' && !cupHinted) { cupHinted = true; toast(t('cupHint')); }
 });
 
 // the pen: toolbar while it's in hand
 const penBar = $('penBar');
 let penHinted = false;
 book.addEventListener('pen', (e) => {
-  if (e.detail.hover && !penHinted) { penHinted = true; toast('Pick up the pen to write on the catalogue'); }
+  if (e.detail.hover && !penHinted) { penHinted = true; toast(t('penHint')); }
   if (e.detail.color) penBar.querySelectorAll('.sw').forEach((x) => x.classList.toggle('on', x.dataset.color === e.detail.color));
   if (e.detail.active !== undefined) {
     penBar.classList.toggle('open', e.detail.active);
@@ -224,3 +230,10 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') window.pen?.deactivate();
   if ((e.metaKey || e.ctrlKey) && e.key === 'z' && window.pen?.active) { e.preventDefault(); window.pen.undo(); }
 });
+
+// ------------------------------------------------------------ language switch (page text only, not the PDF)
+$('langSwitch').onclick = () => setLang(lang === 'el' ? 'en' : 'el');
+onLangChange(() => { if ($('sharePop').classList.contains('open')) renderShare(); });
+
+// ------------------------------------------------------------ dark mode pull chain
+setupTheme({ book, isSoundOn: () => book.sound.enabled });
