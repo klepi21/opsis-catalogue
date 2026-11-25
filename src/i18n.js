@@ -104,9 +104,8 @@ function initialLang() {
     const saved = localStorage.getItem(KEY);
     if (saved === 'en' || saved === 'el') return saved;
   } catch {}
-  // Greek clinic, Greek catalogue: Greek unless the browser clearly prefers another language
-  const nav = (navigator.languages?.[0] || navigator.language || 'el').toLowerCase();
-  return nav.startsWith('el') || !nav ? 'el' : 'en';
+  // Greek by default, English only when the visitor picks it
+  return 'el';
 }
 
 export let lang = initialLang();
