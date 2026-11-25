@@ -62,8 +62,12 @@ export function setupTheme({ book, isSoundOn }) {
   let dragging = false, startX = 0, startY = 0, moved = false, armed = false, raf = 0;
   const MAX = 46, TRIGGER = 22;
 
+  // the chain grows as it is pulled, so it always stays attached to its mount (no gap at the top)
+  const chain = arm.querySelector('.pull-chain');
+  const BASE = 112;
   const render = () => {
-    arm.style.transform = `translateY(${y.toFixed(2)}px) rotate(${a.toFixed(3)}deg)`;
+    arm.style.transform = `rotate(${a.toFixed(3)}deg)`;
+    chain.style.height = `${(BASE + Math.max(-6, y)).toFixed(2)}px`;
   };
   const step = () => {
     if (!dragging) {
