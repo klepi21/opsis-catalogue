@@ -26,14 +26,23 @@ export function setupTheme({ book, isSoundOn }) {
   apply();
   onLangChange(syncTitle);
 
-  // hang the chain just left of the header buttons
+  // hang the chain in the empty space beside the book, never over it; it passes behind the header buttons
   const place = () => {
-    const actions = document.querySelector('.actions').getBoundingClientRect();
-    pull.style.left = `${Math.round(actions.left - 30)}px`;
+    const rect = book.bookScreenRect?.();
+    const W = innerWidth, GAP = 40;
+    let x = W - 22;
+    if (rect) {
+      const right = W - rect.right, left = rect.left;
+      if (right >= GAP) x = rect.right + right / 2;
+      else if (left >= GAP) x = left / 2;
+    }
+    pull.style.left = `${Math.round(x)}px`;
   };
+  const placeSoon = () => requestAnimationFrame(place);
   place();
-  addEventListener('resize', place);
-  new ResizeObserver(place).observe(document.querySelector('.actions'));
+  addEventListener('resize', placeSoon);
+  book.addEventListener('ready', placeSoon);
+  book.addEventListener('flip', placeSoon);
 
   // --- a short brass click, synthesised so there is nothing extra to download
   let ctx;

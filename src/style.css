@@ -301,7 +301,7 @@ h1 {
 
 /* ------------------------------------------------ pull chain (desktop only) */
 .pull {
-  position: fixed; top: 0; left: 70%; z-index: 7; width: 0; height: 0; display: none;
+  position: fixed; top: 0; left: 70%; z-index: 5; width: 0; height: 0; display: none;
   --g-hi: #f1dfa8; --g-mid: #c4a15a; --g-lo: #8a6930; --g-dk: #5a4220;
 }
 @media (hover: hover) and (pointer: fine) and (min-width: 900px) { .pull { display: block; } }

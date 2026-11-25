@@ -832,6 +832,24 @@ export class Flipbook extends EventTarget {
     this._placeCamera();
   }
 
+  // where the closed or open book sits on screen at normal zoom, in CSS pixels
+  bookScreenRect() {
+    if (!this.H) return null;
+    const half = this.portrait ? W / 2 + BOARD_M : W + BOARD_M;
+    const bx = this._baseX(), hy = this.H / 2 + BOARD_M;
+    const saved = { z: this.zoom, x: this.pan.x, y: this.pan.y };
+    this.zoom = 1; this.pan.set(bx, 0); this._placeCamera(); this.camera.updateMatrixWorld();
+    const r = this.renderer.domElement.getBoundingClientRect();
+    let l = Infinity, rt = -Infinity, t = Infinity, b = -Infinity;
+    for (const [x, y] of [[bx - half, -hy], [bx + half, -hy], [bx - half, hy], [bx + half, hy]]) {
+      const v = new THREE.Vector3(x, y, 0.03).project(this.camera);
+      const sx = r.left + (v.x + 1) / 2 * r.width, sy = r.top + (1 - v.y) / 2 * r.height;
+      l = Math.min(l, sx); rt = Math.max(rt, sx); t = Math.min(t, sy); b = Math.max(b, sy);
+    }
+    this.zoom = saved.z; this.pan.set(saved.x, saved.y); this._placeCamera();
+    return { left: l, right: rt, top: t, bottom: b };
+  }
+
   _placeCamera() {
     const tilt = THREE.MathUtils.degToRad(8);
     const d = this.baseDist / this.zoom;
