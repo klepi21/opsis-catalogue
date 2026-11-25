@@ -199,6 +199,7 @@ export class Flipbook extends EventTarget {
     this.hemi.intensity = on ? 0.62 : 1.05;
     this.key.intensity = on ? 2.05 : 2.35;
     this.groundMat.opacity = on ? 0.55 : 0.32;
+    this._calibratePaper(); // pages keep the PDF's exact colours in both themes
   }
 
   _initThree() {
@@ -227,6 +228,7 @@ export class Flipbook extends EventTarget {
     key.shadow.bias = -0.0004;
     key.shadow.normalBias = 0.003;
     this.scene.add(key, key.target);
+    this._calibratePaper();
 
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(30, 30),
@@ -293,9 +295,40 @@ export class Flipbook extends EventTarget {
   }
 
   _pageMaterial() {
-    return new THREE.MeshStandardMaterial({
-      map: this.paperTex, roughness: 0.78, metalness: 0, vertexColors: true,
-    });
+    // matte paper (pure diffuse, so lighting only scales the colour) tinted by the inverse of the light
+    // that falls on a flat page: a page lying flat shows the PDF's exact colours, curves still shade
+    const m = new THREE.MeshLambertMaterial({ map: this.paperTex, vertexColors: true });
+    m.color.copy(this._pageTint || new THREE.Color(1, 1, 1));
+    (this._pageMats ||= new Set()).add(m);
+    return m;
+  }
+
+  // how much light a flat, face up white page receives, measured with the real lights, then inverted
+  _calibratePaper() {
+    const r = this.renderer;
+    const type = r.extensions.has('EXT_color_buffer_float') ? THREE.FloatType : THREE.UnsignedByteType;
+    const rt = new THREE.WebGLRenderTarget(4, 4, { type });
+    const scene = new THREE.Scene();
+    const hemi = this.hemi.clone(); hemi.position.copy(this.hemi.position);
+    const key = new THREE.DirectionalLight(this.key.color, this.key.intensity);
+    key.position.copy(this.key.position).sub(this.key.target.position);
+    scene.add(hemi, key, key.target);
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshLambertMaterial({ color: 0xffffff }));
+    scene.add(quad);
+    const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    cam.position.set(0, 0, 5); cam.lookAt(0, 0, 0);
+    const prev = r.getRenderTarget();
+    r.setRenderTarget(rt);
+    r.render(scene, cam);
+    const px = type === THREE.FloatType ? new Float32Array(4) : new Uint8Array(4);
+    r.readRenderTargetPixels(rt, 1, 1, 1, 1, px);
+    r.setRenderTarget(prev);
+    rt.dispose(); quad.geometry.dispose(); quad.material.dispose();
+    const k = type === THREE.FloatType ? 1 : 1 / 255;
+    const f = [px[0] * k, px[1] * k, px[2] * k].map((v) => (v > 0.01 ? v : 1));
+    this._pageTint = new THREE.Color().setRGB(1 / f[0], 1 / f[1], 1 / f[2]);
+    this._pageMats?.forEach((m) => m.color.copy(this._pageTint));
+    this.dirty = true;
   }
 
   _pageGeometry(segX, segY, mirrorUV) {
@@ -308,7 +341,8 @@ export class Flipbook extends EventTarget {
     for (let i = 0; i < pos.count; i++) {
       const u = pos.getX(i);
       pos.setZ(i, bulge(u));
-      const s = gutterShade(u);
+      // a single page catalogue has no spine to darken
+      const s = this.portrait ? 1 : gutterShade(u);
       col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = s;
       if (mirrorUV) uv.setX(i, 1 - u / W);
     }
@@ -319,6 +353,7 @@ export class Flipbook extends EventTarget {
   }
 
   _buildBook() {
+    this._pageMats?.clear();
     // clear old book
     while (this.book.children.length) {
       const m = this.book.children.pop();
