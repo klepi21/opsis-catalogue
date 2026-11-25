@@ -97,7 +97,9 @@ export function deformPage(o) {
     const arc = L * Math.sin(Math.min(Math.abs(x) / W, 1) * Math.PI * 0.5) * smooth(0, 0.3 * W, s);
     pos[i * 3] = x;
     pos[i * 3 + 1] = y;
-    pos[i * 3 + 2] = zFlat + (zBase - zFlat) * ff + zz + z0 * (1 - ff) + arc;
+    // the folded part takes on the gutter curve of the page it lands on (mirrored, so measured from
+    // the spine): it settles exactly on top of that page instead of below the curve of the old one
+    pos[i * 3 + 2] = zFlat + (zBase - zFlat) * ff + zz + z0 * (1 - ff) + bulge(Math.abs(x)) * ff + arc;
   }
   return { progress, R };
 }

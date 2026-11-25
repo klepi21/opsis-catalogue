@@ -203,7 +203,7 @@ export class Flipbook extends EventTarget {
 
   _initThree() {
     const r = (this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }));
-    r.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    r.setPixelRatio(Math.min(window.devicePixelRatio, 3)); // full screen resolution, 3x phones included
     r.outputColorSpace = THREE.SRGBColorSpace;
     r.toneMapping = THREE.NoToneMapping;
     r.shadowMap.enabled = true;
@@ -438,6 +438,8 @@ export class Flipbook extends EventTarget {
   _texHeight() {
     const max = Math.min(this.renderer.capabilities.maxTextureSize, 4096);
     const canvasH = this.renderer.domElement.height || 1;
+    // at rest the page is snapped to whole screen pixels: render it at exactly that size
+    if (this._snap && Math.abs(this.zoomTarget - 1) < 1e-3) return clamp(this._snap.th, 256, max);
     let px = canvasH * 0.9;
     if (this.H && this.baseDist) {
       const t = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
@@ -483,7 +485,8 @@ export class Flipbook extends EventTarget {
       const h = near ? want : Math.min(want, 1536);
       const have = this.tex.get(i);
       // good enough: at least as sharp as the screen, and not so oversized that it blurs (e.g. after zooming out)
-      if (have && have.height >= h && (have.height <= h * 1.6 || !near)) continue;
+      const exact = near && this._snap && Math.abs(this.zoomTarget - 1) < 1e-3;
+      if (have && (exact ? have.height === h : have.height >= h && (have.height <= h * 1.6 || !near))) continue;
       if (have?.loading === h) continue;
       const rec = have || {};
       rec.loading = h;
@@ -500,13 +503,14 @@ export class Flipbook extends EventTarget {
           this._refreshMaps();
         }).catch(() => { rec.preview = false; });
       }
-      this.pdf.render(e.page, h, Math.abs(i - centre)).then((canvas) => {
+      const tw = h === this._snap?.th ? this._snap.tw : 0;
+      this.pdf.render(e.page, h, Math.abs(i - centre), tw).then((canvas) => {
         if (rec.loading !== h) return;
         this._applyStains(i, canvas);
         const t = this._pageTexture(canvas);
         rec.tex?.dispose();
         rec.tex = t; rec.height = h; rec.loading = 0;
-        this.pdf.forget(e.page, h);
+        this.pdf.forget(e.page, h, tw);
         this._refreshMaps();
       }).catch(() => { if (rec.loading === h) rec.loading = 0; });
     }
@@ -653,12 +657,8 @@ export class Flipbook extends EventTarget {
 
   _refreshMaps() {
     if (this.flip) {
-      const f = this.flip;
-      // while a completed turn settles, the curved page underneath peeks through the flat landing sheet,
-      // so give it the landing page already: no flash of the previous page
-      const landing = f.mode === 'anim' && f.anim?.complete && (f.progress || 0) > 0.8;
-      this._setMap(this.staticL, landing && f.dir > 0 ? f.back : f.sL);
-      this._setMap(this.staticR, landing && f.dir < 0 ? f.back : f.sR);
+      this._setMap(this.staticL, this.flip.sL);
+      this._setMap(this.staticR, this.flip.sR);
       this._setMap(this.flipFront, this.flip.front);
       this._setMap(this.flipBack, this.flip.back);
     } else {
@@ -681,6 +681,7 @@ export class Flipbook extends EventTarget {
     this.staticR.position.z = this._zTop(rightSheets) - GUTTER_A;
     this._updateStack(this.stackL, leftSheets);
     this._updateStack(this.stackR, rightSheets);
+    this._scaleStatic();
   }
 
   // ---------------------------------------------------------------- flipping
@@ -788,6 +789,7 @@ export class Flipbook extends EventTarget {
       Rbase: R_BASE, lift: f.lift, zFlat: f.zFlat, zFold: f.zFold, bulge,
     });
     f.progress = r.progress;
+    this._scaleFlip(f);
     pos.needsUpdate = true;
     this.flipGeoF.computeVertexNormals();
     this.dirty = true;
@@ -807,7 +809,6 @@ export class Flipbook extends EventTarget {
         f.M[0] = a.from[0] + (a.to[0] - a.from[0]) * e;
         f.M[1] = a.from[1] + (a.to[1] - a.from[1]) * e + a.bump * Math.sin(Math.PI * e);
         this._deform();
-        this._refreshMaps();
         if (a.t >= 1) this._endFlip(f);
       } else {
         // drag and peek: the sheet follows the pointer with a little inertia
@@ -894,7 +895,66 @@ export class Flipbook extends EventTarget {
     this.key.shadow.camera.top = this.key.shadow.camera.right = W + 0.6;
     this.key.shadow.camera.bottom = this.key.shadow.camera.left = -(W + 0.6);
     this.key.shadow.camera.updateProjectionMatrix();
+    this._snapCamera();
     this._placeCamera();
+  }
+
+  // Pixel perfect page at rest: the camera looks straight down, the right page is a whole number of
+  // screen pixels wide and its corner sits on a pixel, and the page texture is rendered at exactly
+  // that size, so every PDF pixel lands on one screen pixel (no resampling blur on small text).
+  _snapCamera() {
+    this._snap = null;
+    if (!this.H || !this.staticR || !this.baseDist) return;
+    const canvas = this.renderer.domElement;
+    const cw = canvas.width, ch = canvas.height;
+    if (!cw || !ch) return;
+    const t = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+    const lift = this.book.position.z;
+    // reference level: the right page as it lies now; pages on other levels get scaled to match it
+    const zR = lift + this._zTop(this.numSpreads - this.spread);
+    const P = Math.max(64, Math.floor(ch / (2 * t * (this.baseDist + 0.03 - zR))));
+    const camZ = zR + ch / (2 * t * P);
+    const bx = this._baseX();
+    // where the right page's top spine corner lands with no offset
+    this.camera.position.set(bx, 0, camZ);
+    this.camera.lookAt(bx, 0, camZ - 1);
+    this.camera.updateMatrixWorld();
+    const v = new THREE.Vector3(0, this.H / 2, zR).project(this.camera);
+    const sx = (v.x + 1) / 2 * cw, sy = (1 - v.y) / 2 * ch;
+    const dx = sx - Math.round(sx), dy = sy - Math.round(sy);
+    this._snap = { camZ, dx: dx / P, dy: -dy / P, P, tw: P, th: Math.round(P * this.H), zRef: zR, cx: bx + dx / P, cy: -dy / P };
+    this._scaleStatic();
+  }
+
+  // pages lie on stacks of different height, and the stacks change as you turn. Instead of moving the
+  // camera (a visible jump), each page is scaled about the camera axis so it shows at exactly the
+  // reference pixel size wherever it lies
+  _scaleStatic() {
+    const s = this._snap;
+    for (const [m, sign] of [[this.staticR, 1], [this.staticL, -1]]) {
+      if (!m) continue;
+      let k = 1, ox = 0, oy = 0;
+      if (s) {
+        const z = this.book.position.z + m.position.z + GUTTER_A;
+        k = (s.camZ - z) / (s.camZ - s.zRef);
+        ox = s.cx * (1 - k); oy = s.cy * (1 - k);
+      }
+      m.scale.set(sign * k, k, 1);
+      m.position.x = ox; m.position.y = oy;
+    }
+  }
+
+  // the turning sheet gets the same correction, following its height from one stack to the other
+  _scaleFlip(f) {
+    const s = this._snap;
+    let k = 1;
+    if (s) {
+      const zb = (f.zFlat + (f.zFold - f.zFlat) * (f.progress || 0)) + GUTTER_A + this.book.position.z;
+      k = (s.camZ - zb) / (s.camZ - s.zRef);
+    }
+    this.flipGroup.scale.set(f.dir * k, k, 1);
+    this.flipGroup.position.x = s ? s.cx * (1 - k) : 0;
+    this.flipGroup.position.y = s ? s.cy * (1 - k) : 0;
   }
 
   // where the closed or open book sits on screen at normal zoom, in CSS pixels
@@ -916,11 +976,12 @@ export class Flipbook extends EventTarget {
   }
 
   _placeCamera() {
-    const tilt = THREE.MathUtils.degToRad(8);
-    const d = this.baseDist / this.zoom;
-    const tx = this.pan.x, ty = this.pan.y;
-    this.camera.position.set(tx, ty - Math.sin(tilt) * d, Math.cos(tilt) * d + 0.03);
-    this.camera.lookAt(tx, ty, 0.03);
+    const s = this._snap;
+    const tx = this.pan.x + (s?.dx || 0), ty = this.pan.y + (s?.dy || 0);
+    // straight down: a flat page stays a clean rectangle on screen
+    const z = s && Math.abs(this.zoom - 1) < 1e-3 ? s.camZ : (s ? s.camZ - 0.03 : this.baseDist) / this.zoom + 0.03;
+    this.camera.position.set(tx, ty, z);
+    this.camera.lookAt(tx, ty, z - 1);
   }
 
   _clampPan() {
